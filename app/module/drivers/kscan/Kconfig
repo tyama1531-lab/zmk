@@ -72,6 +72,27 @@ config ZMK_KSCAN_MATRIX_WAIT_BETWEEN_OUTPUTS
 
 endif # ZMK_KSCAN_GPIO_MATRIX
 
+config ZMK_KSCAN_REDUCED_SCAN
+    bool "Enable reduced-scan low-power mode for matrix kscan"
+    default n
+    help
+        When enabled, the matrix kscan driver will enter a reduced-scan
+        (low-power) mode after a configurable idle timeout. While in
+        reduced-scan, the driver will use a larger poll period to reduce
+        wakeups and CPU activity. The feature is intended to reduce power
+        consumption on battery-powered keyboards when the user is inactive.
+
+config ZMK_KSCAN_REDUCED_POLL_MS
+    int "Poll period (ms) used while in reduced-scan mode"
+    default 1000
+    depends on ZMK_KSCAN_REDUCED_SCAN
+
+config ZMK_KSCAN_REDUCED_TIMEOUT_MS
+    int "Idle timeout (ms) before entering reduced-scan mode"
+    default 300000
+    depends on ZMK_KSCAN_REDUCED_SCAN
+
+
 if ZMK_KSCAN_GPIO_CHARLIEPLEX
 
 config ZMK_KSCAN_CHARLIEPLEX_WAIT_BEFORE_INPUTS

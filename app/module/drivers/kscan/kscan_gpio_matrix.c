@@ -83,6 +83,9 @@ struct kscan_matrix_data {
      * (config->rows * config->cols)
      */
     struct zmk_debounce_state *matrix_state;
+    /* Reduced-scan (low-power) support */
+    bool reduced_mode;
+    int64_t last_activity_time_ms;
 };
 
 struct kscan_matrix_config {
@@ -201,6 +204,10 @@ static void kscan_matrix_read_continue(const struct device *dev) {
 }
 
 static void kscan_matrix_read_end(const struct device *dev) {
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_REDUCED_SCAN)
+    struct kscan_matrix_data *data = dev->data;
+    const struct kscan_matrix_config *config = dev->config;
+#endif
 #if USE_INTERRUPTS
     // Return to waiting for an interrupt.
     kscan_matrix_interrupt_enable(dev);
@@ -208,10 +215,32 @@ static void kscan_matrix_read_end(const struct device *dev) {
     struct kscan_matrix_data *data = dev->data;
     const struct kscan_matrix_config *config = dev->config;
 
+    /* If reduced-scan is enabled, honor reduced mode poll period and idle timeout */
+#if IS_ENABLED(CONFIG_ZMK_KSCAN_REDUCED_SCAN)
+    int poll_ms = config->poll_period_ms;
+
+    if (data->reduced_mode) {
+            poll_ms = CONFIG_ZMK_KSCAN_REDUCED_POLL_MS;
+    }
+
+    data->scan_time += poll_ms;
+
+    /* If we are not in reduced mode and no key activity for timeout -> enter reduced */
+    if (!data->reduced_mode) {
+        int64_t now = k_uptime_get();
+            if ((now - data->last_activity_time_ms) >= CONFIG_ZMK_KSCAN_REDUCED_TIMEOUT_MS) {
+            data->reduced_mode = true;
+            LOG_DBG("kscan: entering reduced-scan mode");
+        }
+    }
+
+    k_work_reschedule(&data->work, K_TIMEOUT_ABS_MS(data->scan_time));
+#else
     data->scan_time += config->poll_period_ms;
 
     // Return to polling slowly.
     k_work_reschedule(&data->work, K_TIMEOUT_ABS_MS(data->scan_time));
+#endif
 #endif
 }
 
@@ -283,6 +312,14 @@ static int kscan_matrix_read(const struct device *dev) {
         // it is pressed. Poll quickly until everything is released.
         kscan_matrix_read_continue(dev);
     } else {
+        /* Update last activity time when everything is released */
+        struct kscan_matrix_data *data = dev->data;
+        data->last_activity_time_ms = k_uptime_get();
+        /* Exiting reduced mode if activity observed */
+        if (data->reduced_mode) {
+            data->reduced_mode = false;
+            LOG_DBG("kscan: exiting reduced-scan mode");
+        }
         // All keys are released. Return to normal.
         kscan_matrix_read_end(dev);
     }
